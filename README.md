@@ -297,7 +297,7 @@ You will see the Smart Sense setup form.
 | **Gain** | Sensor amplification, 1× to 512×. Start with **64×**. |
 | **LED current** | Brightness of the light source, 4–258 mA. Start with **50–100 mA**. |
 | **First…Fifth Concentration** | The five known concentrations of your calibration standards, **in ascending order**, in whatever unit you like (mol/L, mg/L, ppm…). The device does not care about the unit — it reports the answer in the same one. Use a **decimal point**, not a comma. |
-| **Escolha dos canais** (channel selection) | The wavelength(s) you want to measure at. Pick the one closest to your analyte's λ<sub>max</sub>. |
+| **Channel selection** | The wavelength(s) you want to measure at. Pick the one closest to your analyte's λ<sub>max</sub>. |
 
 **Selecting more than one wavelength:** hold `Ctrl` (Windows/Linux) or `Cmd` (macOS) while clicking,
 or tap multiple entries on a phone. **You must select at least one** — if you select none, the
@@ -532,7 +532,7 @@ four independent absorbance values from one press of the button.
 
 ### Fitting the calibration curve
 
-Once the fifth standard is measured, `calcularRegressaoLinearPorCanal()`
+Once the fifth standard is measured, `calculateLinearRegressionPerChannel()`
 ([`main.cpp:277`](CODE/src/main.cpp#L277)) performs a **least-squares linear regression** for each
 channel separately, with
 
@@ -553,7 +553,7 @@ well-behaved blank — a large intercept is a hint that something is wrong with 
 stray light is reaching the sensor.
 
 The coefficients are stored in `a_reg[]` and `b_reg[]` and displayed by
-`mostrarRegressoesNaTela()`.
+`showRegressionsOnDisplay()`.
 
 ### Back to concentration
 
@@ -600,8 +600,6 @@ Stated plainly, so you know what this instrument is and is not:
   procedure runs and displays nothing at the end.
 - **The web interface has no authentication.** Anyone within Wi-Fi range who knows the password can
   reconfigure the device. It is designed for a benchtop, not a network.
-- **Mixed-language interface.** One label on the web page and most code comments are in Portuguese;
-  the on-screen prompts are in English.
 
 ---
 

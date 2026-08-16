@@ -5,9 +5,9 @@
 #include <Adafruit_AS7341.h>
 #include <ESPAsyncWebServer.h>
 #include "webPage.h"
-#include <math.h> // Adicionado para a função log10
+#include <math.h> // Added for the log10 function
 
-// Constantes de configuração
+// Configuration constants
 #define MIN_LED_CURRENT 4
 #define MAX_LED_CURRENT 258
 #define MIN_GAIN 1
@@ -15,7 +15,7 @@
 
 #define BUTTON_PIN 1  // GPIO1
 
-// Configuração WiFi
+// WiFi configuration
 const char* ssid = "Smart_Sense_Network";
 const char* password = "smarteza";
 
@@ -26,15 +26,15 @@ Adafruit_AS7341 as7341;
 struct MeasurementConfig {
     uint16_t gain = 1;
     uint16_t current = 100;
-    float concentration_values[5]; // Modificado de pH_values
+    float concentration_values[5];
     bool isValid = false;
 };
 
-// Estados da máquina de estados de medição
+// States of the measurement state machine
 enum MeasurementState {
     WAIT_SETUP,
-    WAIT_BLANK,           // Novo estado para aguardar a medição do branco
-    MEASURING_BLANK,      // Novo estado para medir o branco
+    WAIT_BLANK,           // Waits for the reference (blank) measurement
+    MEASURING_BLANK,      // Measures the reference (blank)
     WAIT_BUTTON,
     MEASURING,
     WAIT_UNKNOWN_SAMPLE,
@@ -50,22 +50,22 @@ const unsigned long debounceDelay = 50; // milliseconds
 MeasurementConfig config;
 AsyncWebServer server(80);
 
-// Variáveis de canal
+// Channel variables
 #define MAX_CHANNELS 8
 #define NUM_CHANNELS 8
 #define READINGS_PER_SAMPLE 20
 uint16_t selectedChannels[MAX_CHANNELS];
 uint8_t numSelectedChannels = 0;
 
-// Variáveis para armazenamento de dados
-float blankReadings[MAX_CHANNELS];          // MODIFICAÇÃO: Armazena a leitura do branco
-float absorbanceAmostras[5][MAX_CHANNELS];  // MODIFICAÇÃO: Armazena a absorbância de cada amostra
+// Data storage variables
+float blankReadings[MAX_CHANNELS];          // Stores the reference (blank) reading
+float sampleAbsorbances[5][MAX_CHANNELS];   // Stores the absorbance of each sample
 
-// Arrays globais para armazenar coeficientes da regressão (y = ax + b)
-float a_reg[MAX_CHANNELS]; // Coeficiente angular (slope 'a')
-float b_reg[MAX_CHANNELS]; // Intercepto (intercept 'b')
+// Global arrays holding the regression coefficients (y = ax + b)
+float a_reg[MAX_CHANNELS]; // Slope 'a'
+float b_reg[MAX_CHANNELS]; // Intercept 'b'
 
-// Protótipos de função
+// Function prototypes
 void initializeDisplay();
 void initializeSensor();
 void writeTextToDisplay(const String& text, uint16_t color, uint8_t size, uint16_t x, uint16_t y, uint16_t durationMs);
@@ -75,11 +75,11 @@ void setupWebRoutes();
 void clearDisplay();
 float calculateAverage(uint16_t readings[], int size);
 void performSingleMeasurement(float* resultArray);
-void mostrarRegressoesNaTela();
-void calcularRegressaoLinearPorCanal(float x_values[5], float y_values[5][MAX_CHANNELS], uint8_t numCanais, float* a_out, float* b_out);
+void showRegressionsOnDisplay();
+void calculateLinearRegressionPerChannel(float x_values[5], float y_values[5][MAX_CHANNELS], uint8_t numChannels, float* a_out, float* b_out);
 
 void setup(void) {
-  // Configuração WiFi
+  // WiFi configuration
   WiFi.softAP(ssid, password);
   // Initialize the display and the sensor
   initializeDisplay();
@@ -88,7 +88,7 @@ void setup(void) {
   server.begin();
 
   pinMode(BUTTON_PIN, INPUT_PULLDOWN);
-  
+
   writeTextToDisplay("Access the web", ST77XX_WHITE, 2, 10, 20, 0);
   writeTextToDisplay("interface at:", ST77XX_WHITE, 2, 10, 40, 0);
   writeTextToDisplay(WiFi.softAPIP().toString(), ST77XX_CYAN, 2, 10, 60, 0);
@@ -96,7 +96,7 @@ void setup(void) {
 }
 
 void loop() {
-  // 1. Aguarda configuração via web
+  // 1. Waits for the configuration sent from the web page
   if (config.isValid && measureState == WAIT_SETUP) {
     clearDisplay();
     writeTextToDisplay("Setup OK", ST77XX_GREEN, 2, 10, 30, 0);
@@ -105,8 +105,8 @@ void loop() {
     writeTextToDisplay("button", ST77XX_CYAN, 2, 10, 90, 0);
     measureState = WAIT_BLANK;
   }
-  
-  // 2. Aguarda botão para medir o BRANCO
+
+  // 2. Waits for the button to measure the REFERENCE (blank)
   if (measureState == WAIT_BLANK) {
       if (digitalRead(BUTTON_PIN) == HIGH) {
           measureState = MEASURING_BLANK;
@@ -114,12 +114,12 @@ void loop() {
       }
   }
 
-  // 3. Realiza a medição do BRANCO
+  // 3. Performs the REFERENCE (blank) measurement
   if (measureState == MEASURING_BLANK) {
       clearDisplay();
       writeTextCenteredToDisplay("Measuring Reference...", ST77XX_YELLOW, 2, 3000);
-      performSingleMeasurement(blankReadings); // Armazena a leitura do branco
-      
+      performSingleMeasurement(blankReadings); // Stores the reference reading
+
       writeTextToDisplay("reference measured", ST77XX_GREEN, 2, 10, 30, 0);
       writeTextToDisplay("Insert sample 1", ST77XX_CYAN, 2, 10, 50, 0);
       writeTextToDisplay("and press the", ST77XX_CYAN, 2, 10, 70, 0);
@@ -128,7 +128,7 @@ void loop() {
       currentSample = 0;
   }
 
-  // 4. Aguarda botão para as amostras de calibração
+  // 4. Waits for the button for the calibration samples
   if (measureState == WAIT_BUTTON) {
     if (digitalRead(BUTTON_PIN) == HIGH) {
       measureState = MEASURING;
@@ -136,45 +136,45 @@ void loop() {
     }
   }
 
-  // 5. Realiza a medição das 5 amostras de calibração
+  // 5. Measures the 5 calibration samples
   if (measureState == MEASURING) {
     clearDisplay();
     writeTextToDisplay("Measuring sample", ST77XX_YELLOW, 2, 10, 20, 0);
     writeTextToDisplay("number " + String(currentSample + 1), ST77XX_YELLOW, 2, 10, 40, 0);
-    delay(3000); // Tempo para o usuário ver a mensagem
+    delay(3000); // Time for the user to read the message
 
     float sampleResults[MAX_CHANNELS];
     performSingleMeasurement(sampleResults);
 
-    // MODIFICAÇÃO: Calcula a absorbância e salva os resultados
+    // Calculates the absorbance and saves the results
     for (uint8_t i = 0; i < numSelectedChannels; i++) {
-        // Cálculo de Absorbância: A = -log10(I / I0)
+        // Absorbance calculation: A = -log10(I / I0)
         // I = sampleResults[i], I0 = blankReadings[i]
         if (blankReadings[i] > 0 && sampleResults[i] > 0) {
             float transmittance = sampleResults[i] / blankReadings[i];
-            absorbanceAmostras[currentSample][i] = -log10(transmittance);
+            sampleAbsorbances[currentSample][i] = -log10(transmittance);
         } else {
-            absorbanceAmostras[currentSample][i] = 0; // Evita divisão por zero ou log de zero
+            sampleAbsorbances[currentSample][i] = 0; // Avoids division by zero or log of zero
         }
-        
-        // Exibe a absorbância calculada
-        writeTextToDisplay("Ch " + String(selectedChannels[i]) + " Abs: " + String(absorbanceAmostras[currentSample][i], 3),
+
+        // Shows the calculated absorbance
+        writeTextToDisplay("Ch " + String(selectedChannels[i]) + " Abs: " + String(sampleAbsorbances[currentSample][i], 3),
                          ST77XX_WHITE, 2, 10, 10 + i * 15, 3000);
     }
 
     currentSample++;
-    if (currentSample < 5) { // Se ainda não mediu as 5 amostras
+    if (currentSample < 5) { // If the 5 samples have not been measured yet
       clearDisplay();
       writeTextToDisplay("Insert sample " + String(currentSample + 1), ST77XX_WHITE, 2, 10, 40, 0);
       writeTextToDisplay("and press the", ST77XX_WHITE, 2, 10, 60, 0);
       writeTextToDisplay("button", ST77XX_WHITE, 2, 10, 80, 0);
       measureState = WAIT_BUTTON;
-    } else { // Se já mediu todas as 5 amostras
+    } else { // If all 5 samples have already been measured
       clearDisplay();
       writeTextCenteredToDisplay("Calculating curve...", ST77XX_CYAN, 2, 2000);
-      mostrarRegressoesNaTela(); // Calcula e mostra os valores de a e b para cada canal
+      showRegressionsOnDisplay(); // Calculates and shows the a and b values for each channel
       writeTextToDisplay("Calibration Done!", ST77XX_GREEN, 2, 10, 40, 2000);
-      
+
       clearDisplay();
       writeTextToDisplay("Press the button", ST77XX_WHITE, 2, 10, 20, 0);
       writeTextToDisplay("for unknown sample", ST77XX_WHITE, 2, 10, 40, 0);
@@ -182,7 +182,7 @@ void loop() {
     }
   }
 
-  // 6. Espera botão para medir amostra desconhecida
+  // 6. Waits for the button to measure an unknown sample
   if (measureState == WAIT_UNKNOWN_SAMPLE) {
     if (digitalRead(BUTTON_PIN) == HIGH) {
       measureState = MEASURE_UNKNOWN_SAMPLE;
@@ -190,37 +190,37 @@ void loop() {
     }
   }
 
-  // 7. Mede amostra desconhecida e calcula a concentração
+  // 7. Measures the unknown sample and calculates its concentration
   if (measureState == MEASURE_UNKNOWN_SAMPLE) {
     clearDisplay();
     writeTextToDisplay("Measuring unknown", ST77XX_YELLOW, 2, 10, 20, 0);
     writeTextToDisplay("sample...", ST77XX_YELLOW, 2, 10, 40, 0);
     delay(3000);
-    
+
     float unknownRawResults[MAX_CHANNELS];
     performSingleMeasurement(unknownRawResults);
-    
+
     clearDisplay();
     writeTextCenteredToDisplay("Calculating...", ST77XX_CYAN, 2, 1000);
 
     for (uint8_t i = 0; i < numSelectedChannels; i++) {
-      // MODIFICAÇÃO: Calcula a concentração a partir da absorbância
+      // Calculates the concentration from the absorbance
       float unknownAbsorbance = 0;
       if (blankReadings[i] > 0 && unknownRawResults[i] > 0) {
         unknownAbsorbance = -log10(unknownRawResults[i] / blankReadings[i]);
       }
 
-      // Calcula a concentração usando a equação da reta invertida: x = (y - b) / a
+      // Calculates the concentration using the inverted line equation: x = (y - b) / a
       float concentration = 0;
-      if (a_reg[i] != 0) { // Evita divisão por zero
+      if (a_reg[i] != 0) { // Avoids division by zero
           concentration = (unknownAbsorbance - b_reg[i]) / a_reg[i];
       }
-      
+
       clearDisplay();
       String concStr = "Ch " + String(selectedChannels[i]) + " : " + String(concentration, 4);
       writeTextToDisplay(concStr, ST77XX_WHITE, 2, 10, 50, 10000);
     }
-    
+
     clearDisplay();
     writeTextToDisplay("Press the button", ST77XX_WHITE, 2, 10, 20, 0);
     writeTextToDisplay("for another", ST77XX_WHITE, 2, 10, 40, 0);
@@ -231,7 +231,7 @@ void loop() {
 
 void performSingleMeasurement(float* resultArray) {
     as7341.enableLED(true);
-    delay(100); // Pequeno delay para estabilizar o LED
+    delay(100); // Short delay to let the LED stabilize
 
     uint16_t readings[READINGS_PER_SAMPLE][NUM_CHANNELS] = {0};
 
@@ -256,13 +256,13 @@ void performSingleMeasurement(float* resultArray) {
             }
         }
         delay(50);
-        clearDisplay(); // Limpa a tela para cada leitura
+        clearDisplay(); // Clears the screen for each reading
         writeTextCenteredToDisplay("Reading " + String(i + 1) + " done", ST77XX_WHITE, 2, 0);
     }
 
      as7341.enableLED(false);
 
-    // Calcular médias para cada canal selecionado
+    // Calculate the averages for each selected channel
     for (int channel = 0; channel < numSelectedChannels; channel++) {
         uint16_t channelReadings[READINGS_PER_SAMPLE];
         for (int i = 0; i < READINGS_PER_SAMPLE; i++) {
@@ -273,14 +273,14 @@ void performSingleMeasurement(float* resultArray) {
     clearDisplay();
 }
 
-// MODIFICAÇÃO: A função agora calcula a regressão para X=Concentração, Y=Absorbância
-void calcularRegressaoLinearPorCanal(float x_values[5], float y_values[5][MAX_CHANNELS], uint8_t numCanais, float* a_out, float* b_out) {
-    for (uint8_t canal = 0; canal < numCanais; canal++) {
+// Computes the regression for X = Concentration, Y = Absorbance
+void calculateLinearRegressionPerChannel(float x_values[5], float y_values[5][MAX_CHANNELS], uint8_t numChannels, float* a_out, float* b_out) {
+    for (uint8_t channel = 0; channel < numChannels; channel++) {
         float sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
         int n = 5;
         for (uint8_t i = 0; i < n; i++) {
             float x = x_values[i];
-            float y = y_values[i][canal];
+            float y = y_values[i][channel];
             sumX += x;
             sumY += y;
             sumXY += x * y;
@@ -288,25 +288,25 @@ void calcularRegressaoLinearPorCanal(float x_values[5], float y_values[5][MAX_CH
         }
         float denom = n * sumXX - sumX * sumX;
         if (denom != 0) {
-            a_out[canal] = (n * sumXY - sumX * sumY) / denom; // 'a' (slope)
-            b_out[canal] = (sumY * sumXX - sumX * sumXY) / denom; // 'b' (intercept)
+            a_out[channel] = (n * sumXY - sumX * sumY) / denom; // 'a' (slope)
+            b_out[channel] = (sumY * sumXX - sumX * sumXY) / denom; // 'b' (intercept)
         } else {
-            a_out[canal] = 0;
-            b_out[canal] = 0;
+            a_out[channel] = 0;
+            b_out[channel] = 0;
         }
     }
 }
 
-void mostrarRegressoesNaTela() {
-    // MODIFICAÇÃO: Passa os valores de concentração e absorbância para a função de regressão
-    calcularRegressaoLinearPorCanal(config.concentration_values, absorbanceAmostras, numSelectedChannels, a_reg, b_reg);
-    
+void showRegressionsOnDisplay() {
+    // Passes the concentration and absorbance values to the regression function
+    calculateLinearRegressionPerChannel(config.concentration_values, sampleAbsorbances, numSelectedChannels, a_reg, b_reg);
+
     for (uint8_t i = 0; i < numSelectedChannels; i++) {
         clearDisplay();
-        String canalStr = "Ch " + String(selectedChannels[i]);
+        String channelStr = "Ch " + String(selectedChannels[i]);
         String aStr = "a: " + String(a_reg[i], 4); // slope
         String bStr = "b: " + String(b_reg[i], 4); // intercept
-        writeTextToDisplay(canalStr, ST77XX_WHITE, 2, 10, 20, 0);
+        writeTextToDisplay(channelStr, ST77XX_WHITE, 2, 10, 20, 0);
         writeTextToDisplay(aStr, ST77XX_YELLOW, 2, 10, 50, 0);
         writeTextToDisplay(bStr, ST77XX_YELLOW, 2, 10, 80, 0);
         delay(5000);
@@ -340,7 +340,7 @@ void initializeSensor() {
   while(!as7341.begin()) {
     writeTextToDisplay("Failed to initialize AS7341", ST77XX_RED, 2, 10, 40, 0);
     delay(1000);
-  }  
+  }
 
   clearDisplay();
 
@@ -358,7 +358,7 @@ void writeTextToDisplay(const String& text, uint16_t color, uint8_t size, uint16
   tft.println(text);
   if (durationMs > 0) {
     delay(durationMs);
-    tft.fillScreen(ST77XX_BLACK); // Limpa a tela após o tempo
+    tft.fillScreen(ST77XX_BLACK); // Clears the screen after the delay
   }
 }
 
@@ -395,7 +395,7 @@ bool configureSensor() {
         case 128: gainSetting = AS7341_GAIN_128X; break;
         case 256: gainSetting = AS7341_GAIN_256X; break;
         case 512: gainSetting = AS7341_GAIN_512X; break;
-        default: 
+        default:
         writeTextCenteredToDisplay("Invalid gain setting", ST77XX_RED, 2, 2000);
         return false;
     }
@@ -419,14 +419,14 @@ void setupWebRoutes() {
 
         config.gain = request->getParam("gain")->value().toInt();
         config.current = request->getParam("current")->value().toInt();
-        // MODIFICAÇÃO: Armazena os valores de concentração
+        // Stores the concentration values
         config.concentration_values[0] = request->getParam("concentration1")->value().toFloat();
         config.concentration_values[1] = request->getParam("concentration2")->value().toFloat();
         config.concentration_values[2] = request->getParam("concentration3")->value().toFloat();
         config.concentration_values[3] = request->getParam("concentration4")->value().toFloat();
         config.concentration_values[4] = request->getParam("concentration5")->value().toFloat();
 
-        // Parse dos canais selecionados
+        // Parse the selected channels
         String channelsStr = request->getParam("channels")->value();
         numSelectedChannels = 0;
         int lastIdx = 0;
@@ -460,13 +460,13 @@ float calculateAverage(uint16_t readings[], int size) {
     }
   }
 
-  int primeiroQuartil = size / 4;
-  int ultimoQuartil = primeiroQuartil * 3;
-  float soma = 0.0;
-  int contagem = 0;
-  for (int i = primeiroQuartil; i < ultimoQuartil; i++) {
-    soma += readings[i];
-    contagem++;
+  int firstQuartile = size / 4;
+  int lastQuartile = firstQuartile * 3;
+  float sum = 0.0;
+  int count = 0;
+  for (int i = firstQuartile; i < lastQuartile; i++) {
+    sum += readings[i];
+    count++;
   }
-  return contagem > 0 ? soma / contagem : 0;
+  return count > 0 ? sum / count : 0;
 }

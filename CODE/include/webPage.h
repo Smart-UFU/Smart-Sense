@@ -167,7 +167,7 @@ const char webpage[] = R"=====(
                 <input type="text" id="concentration5" placeholder="Enter fifth concentration value">
             </div>
             <div class="form-group">
-                <label for="channels">Escolha dos canais :</label>
+                <label for="channels">Channel selection :</label>
                 <select id="channels" multiple size="8" style="height:auto;">
                     <option value="415">415 nm</option>
                     <option value="445">445 nm</option>
@@ -187,7 +187,7 @@ const char webpage[] = R"=====(
                 <p>Gain: <span id="setupGain"></span></p>
                 <p>LED current: <span id="setupCurrent"></span> mA</p>
                 <p>Concentration values: <span id="setupConcentration"></span></p>
-                <p>Canais: <span id="setupChannels"></span></p>
+                <p>Channels: <span id="setupChannels"></span></p>
             </div>
         </div>
     </div>
@@ -200,7 +200,7 @@ const char webpage[] = R"=====(
             const concentration3 = document.getElementById('concentration3').value;
             const concentration4 = document.getElementById('concentration4').value;
             const concentration5 = document.getElementById('concentration5').value;
-            // Captura canais selecionados
+            // Capture the selected channels
             const channels = Array.from(document.getElementById('channels').selectedOptions).map(opt => opt.value).join(',');
 
             try {
